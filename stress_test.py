@@ -32,7 +32,8 @@ def mongo_inserter(cid, ndocs, host, port):
     port (int) mongo port to connect to
     """
     s = socket.getfqdn()
-    log.info("start client {i} on node {n} connecting to {h}:{p} at {d}".format(i=cid, n=s, h=host, p=port, d=datetime.datetime.now()))
+    log.info("inserter.start client={i} node={n} server={h}:{p}".format(
+             i=cid, n=s, h=host, p=port))
     conn = pymongo.Connection(host, port)
     db = conn[DB_NAME]
     collection = db[COLLECTION_NAME]
