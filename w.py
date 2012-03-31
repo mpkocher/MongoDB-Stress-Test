@@ -16,7 +16,8 @@ _name = 'stress_test'
 _file_name = '_'.join([_name, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f") + '.log'])
 
 log = logging.getLogger(__name__)
-hdlr = logging.FileHandler(_file_name)
+#hdlr = logging.FileHandler(_file_name)
+hdlr = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
 hdlr.setFormatter(formatter)
 log.addHandler(hdlr)
@@ -29,9 +30,10 @@ REPORT_DB = STRESS_DB
 REPORT_COLL = 'report'
 
 my_hostname = socket.getfqdn()
+wait_for_it = 0
 
 def stress_test(ndocs=1, host="localhost", port=27017, db_name=STRESS_DB,
-                coll_name=STRESS_COLL, wait_for_it=None, result=None):
+                coll_name=STRESS_COLL, result=None):
     """Run a stress test.
     Duration (result) is stored in `result` argument.
     Returns: None
@@ -40,13 +42,18 @@ def stress_test(ndocs=1, host="localhost", port=27017, db_name=STRESS_DB,
     collection = conn[db_name][coll_name]
     
     t0 = time.time()
-    if wait_for_it:
-        time.sleep(wait_for_it - t0)
+    if wait_for_it > 0:
+        wait_sleep = int(max(0,wait_for_it - t0))
+        log.info("wait sec={0:d}".format(wait_sleep))
+        time.sleep(wait_sleep)
     message = "I am legend"
+    log.info("loop.start n={n}".format(n=ndocs))
+    t0 = time.time()
     for n in xrange(ndocs):
         doc = {'doc_num': n, 'created_at': datetime.datetime.now(), 'message': message}
         collection.insert(doc)
     result.dur = time.time() - t0
+    log.info("loop.end n={n} dur={d:f}".format(n=ndocs, d=result.dur))
 
 def report(conn, run, delta_time, num, **kw):
     """Report time for a client.
@@ -73,6 +80,8 @@ class Result:
 def main():
     """Program entry point.
     """
+    global wait_for_it
+
     parser = OptionParser()
     parser.add_option('-c', '--clear', dest='do_clear', help='Clear collection first', 
                       action="store_true", default=False)
@@ -85,6 +94,9 @@ def main():
     parser.add_option('-t', '--nthreads', dest='nclients', type='int', default= 1)
     parser.add_option('-p', '--port', dest='port', type='int', default=27018,
                       help='MongoDB server port to connect to (default=%default)')
+    parser.add_option('-w', '--when', dest='when', type='int', default=0,
+                      help="Start at future time SEC seconds since 1/1/1970 (default=now)",
+                      metavar="SEC")
     (options, args) = parser.parse_args()
     
     if options.host is None:
@@ -92,8 +104,8 @@ def main():
         return 1
 
     db_name, coll_name = STRESS_DB, STRESS_COLL
-    ndocs, nclients, host, port = (options.ndocs, options.nclients,
-                 options.host, options.port)
+    ndocs, nclients, host, port, wait_for_it = (options.ndocs, options.nclients,
+                 options.host, options.port, options.when)
     log.info("run.start docs={m} clients={n} server={h}:{p:d} "
              "db={db} collection={coll}".format(
              m=ndocs, n=nclients, h=host, p=port, db=db_name, coll=coll_name))
