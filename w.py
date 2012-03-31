@@ -5,6 +5,7 @@ import datetime
 import logging
 from optparse import OptionParser
 import os
+import random
 import socket
 import sys
 import time
@@ -77,7 +78,7 @@ class Result:
     def __init__(self):
         self.dur = 0
     
-def try_connect(host, port, n=5, **kw):
+def try_connect(host, port, n=50, **kw):
     """Try to connect `n` times to mongodb server.
     On failure raise pymongo.errors.ConnectionFailure
     Returns: Connection instance.
@@ -87,10 +88,10 @@ def try_connect(host, port, n=5, **kw):
             conn =  pymongo.Connection(host, port, network_timeout=5, **kw)
             conn.server_info() # test conn
             return conn # all good, return
-        except (errors.Reconnect, errors.ConnectionFailure), err:
+        except (errors.AutoReconnect, errors.ConnectionFailure), err:
             log.warn("connect.error msg={e} try={i:d}/{t:d}".format(e=err,
                      i=i, t=n))
-            time.sleep(0.5)
+            time.sleep(0.5 + random.random())
             continue
     raise errors.ConnectionFailure("{0}:{1:d}".format(host,port))
        

@@ -1,5 +1,4 @@
 #!/bin/bash
-
 #PBS -q debug
 #PBS -N mongostress
 #PBS -l mppwidth=48
@@ -12,7 +11,7 @@ export PYTHONPATH=/global/homes/d/dang/local/lib/python2.7/site-packages
 
 cd $PBS_O_WORKDIR
 
-future=`python -c "import time; print(int(time.time()) + 100)"`
+future=`python -c "import time; print(int(time.time()) + 180)"`
 
 #aprun -n 4 -N 1 ./w.py --host=128.55.57.13 --nthreads=24 --ndocs=100
-aprun -n 48  ./w.py --host=128.55.57.13 --ndocs=100 --when=$future
+aprun -n 48 ./w.py --host=128.55.57.13 --ndocs=100 --when=$future
