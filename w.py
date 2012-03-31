@@ -11,6 +11,7 @@ import time
 import threading
 
 import pymongo
+from pymongo import errors
 
 _name = 'stress_test'
 _file_name = '_'.join([_name, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f") + '.log'])
@@ -32,13 +33,12 @@ REPORT_COLL = 'report'
 my_hostname = socket.getfqdn()
 wait_for_it = 0
 
-def stress_test(ndocs=1, host="localhost", port=27017, db_name=STRESS_DB,
+def stress_test(ndocs=1, conn=None, db_name=STRESS_DB,
                 coll_name=STRESS_COLL, result=None):
     """Run a stress test.
     Duration (result) is stored in `result` argument.
     Returns: None
     """
-    conn = pymongo.Connection(host, port)
     collection = conn[db_name][coll_name]
     
     t0 = time.time()
@@ -76,7 +76,24 @@ def print_results(coll):
 class Result:
     def __init__(self):
         self.dur = 0
-           
+    
+def try_connect(host, port, n=5, **kw):
+    """Try to connect `n` times to mongodb server.
+    On failure raise pymongo.errors.ConnectionFailure
+    Returns: Connection instance.
+    """
+    for i in xrange(n):
+        try:
+            conn =  pymongo.Connection(host, port, network_timeout=5, **kw)
+            conn.server_info() # test conn
+            return conn # all good, return
+        except (errors.Reconnect, errors.ConnectionFailure), err:
+            log.warn("connect.error msg={e} try={i:d}/{t:d}".format(e=err,
+                     i=i, t=n))
+            time.sleep(0.5)
+            continue
+    raise errors.ConnectionFailure("{0}:{1:d}".format(host,port))
+       
 def main():
     """Program entry point.
     """
@@ -113,12 +130,7 @@ def main():
     run_id = int(time.time())
     #run_id = "{t:d}-{m}-{n}".format(m=ndocs, n=nclients, t=run_sec)
 
-    try:
-        conn =  pymongo.Connection(host, port, network_timeout=2)
-        conn.server_info() # test conn
-    except Exception, err:
-        print("connect error: {e}".format(e=err))
-        return -1
+    conn = try_connect(host, port)
 
     if options.do_check:
         coll = conn[db_name][REPORT_COLL]
@@ -134,11 +146,13 @@ def main():
 
     threads, results = [ ], [ ]
     docs_per_thread = ndocs
-    test_kw = { "ndocs": docs_per_thread, "host":host, "port":port,
+    test_kw = { "ndocs": docs_per_thread,
                 "db_name":db_name, "coll_name":coll_name }
     if nclients > 1:
         for i in xrange(nclients):
-            kw = { "result" : Result() }
+            time.sleep(0.1)
+            conn =  try_connect(host, port, max_pool_size=nclients+1)
+            kw = { "result" : Result(), "conn" : conn }
             kw.update(test_kw)
             thr = threading.Thread(target=stress_test, kwargs=kw)
             threads.append(thr)
@@ -149,6 +163,8 @@ def main():
             threads[i].join()
     else:
         test_kw["result"] = Result()
+        conn =  try_connect(host, port, max_pool_size=2)
+        test_kw["conn"] = conn
         stress_test(**test_kw)
         results = [test_kw["result"]]
 
