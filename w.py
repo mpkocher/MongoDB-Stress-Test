@@ -17,10 +17,13 @@ from pymongo import errors
 _name = 'stress_test'
 _file_name = '_'.join([_name, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f") + '.log'])
 
+my_hostname = socket.getfqdn()
+my_pid = os.getpid()
+
 log = logging.getLogger(__name__)
 #hdlr = logging.FileHandler(_file_name)
 hdlr = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+formatter = logging.Formatter("%(asctime)s {h} {p:d} %(levelname)s %(message)s".format(h=my_hostname, p=my_pid))
 hdlr.setFormatter(formatter)
 log.addHandler(hdlr)
 log.setLevel(logging.DEBUG)
@@ -31,8 +34,8 @@ STRESS_COLL = 'data'
 REPORT_DB = STRESS_DB
 REPORT_COLL = 'report'
 
-my_hostname = socket.getfqdn()
 wait_for_it = 0
+net_timeout = 3600 # default to 1 hr
 
 def stress_test(ndocs=1, conn=None, db_name=STRESS_DB,
                 coll_name=STRESS_COLL, result=None):
@@ -45,8 +48,9 @@ def stress_test(ndocs=1, conn=None, db_name=STRESS_DB,
     t0 = time.time()
     if wait_for_it > 0:
         wait_sleep = int(max(0,wait_for_it - t0))
-        log.info("wait sec={0:d}".format(wait_sleep))
+        log.info("client.wait.start sec={0:d}".format(wait_sleep))
         time.sleep(wait_sleep)
+        log.info("client.wait.end sec={0:d}".format(wait_sleep))
     message = "I am legend"
     log.info("loop.start n={n}".format(n=ndocs))
     t0 = time.time()
@@ -59,7 +63,7 @@ def stress_test(ndocs=1, conn=None, db_name=STRESS_DB,
 def report(conn, run, delta_time, num, **kw):
     """Report time for a client.
     """
-    doc = {"host":my_hostname, "pid":os.getpid(),
+    doc = {"host":my_hostname, "pid":my_pid,
            "client": num, "run":run, "dt":delta_time}
     doc.update(kw)
     coll = conn[REPORT_DB][REPORT_COLL]
@@ -78,23 +82,30 @@ class Result:
     def __init__(self):
         self.dur = 0
     
-def try_connect(host, port, n=50, **kw):
+def try_connect(host, port, n=5, test_func=None, **kw):
     """Try to connect `n` times to mongodb server.
     On failure raise pymongo.errors.ConnectionFailure
     Returns: Connection instance.
     """
+    conn = None
     for i in xrange(n):
         try:
-            conn =  pymongo.Connection(host, port, network_timeout=5, **kw)
-            conn.server_info() # test conn
+            conn =  pymongo.Connection(host, port, network_timeout=net_timeout, **kw)
+            if test_func:
+                test_func(conn)
             return conn # all good, return
         except (errors.AutoReconnect, errors.ConnectionFailure), err:
             log.warn("connect.error msg={e} try={i:d}/{t:d}".format(e=err,
                      i=i, t=n))
+            if conn is not None:
+                del conn
             time.sleep(0.5 + random.random())
             continue
     raise errors.ConnectionFailure("{0}:{1:d}".format(host,port))
-       
+
+def dummy_insert(conn):
+    conn[STRESS_DB]["dummy"].insert({"hello":time.time()})
+
 def main():
     """Program entry point.
     """
@@ -124,10 +135,12 @@ def main():
     db_name, coll_name = STRESS_DB, STRESS_COLL
     ndocs, nclients, host, port, wait_for_it = (options.ndocs, options.nclients,
                  options.host, options.port, options.when)
+
     log.info("run.start docs={m} clients={n} server={h}:{p:d} "
              "db={db} collection={coll}".format(
              m=ndocs, n=nclients, h=host, p=port, db=db_name, coll=coll_name))
 
+    log.info("pre.start")
     run_id = int(time.time())
     #run_id = "{t:d}-{m}-{n}".format(m=ndocs, n=nclients, t=run_sec)
 
@@ -138,21 +151,28 @@ def main():
         print_results(coll)
         if options.do_clear:
             conn[db_name][REPORT_COLL].remove()
+        log.info("pre.end status=0")
         return 0
 
     if options.do_clear:
         conn[db_name][coll_name].remove()
 
     conn.end_request()
+    log.info("pre.end status=0")
+
+    log.info("main.start")
 
     threads, results = [ ], [ ]
     docs_per_thread = ndocs
     test_kw = { "ndocs": docs_per_thread,
                 "db_name":db_name, "coll_name":coll_name }
+
     if nclients > 1:
         for i in xrange(nclients):
             time.sleep(0.1)
-            conn =  try_connect(host, port, max_pool_size=nclients+1)
+            log.info("client.connect.start num={i:d}".format(i=i))
+            conn =  try_connect(host, port, test_func=dummy_insert)
+            log.info("client.connect.end status=0 num={i:d}".format(i=i))
             kw = { "result" : Result(), "conn" : conn }
             kw.update(test_kw)
             thr = threading.Thread(target=stress_test, kwargs=kw)
@@ -164,19 +184,22 @@ def main():
             threads[i].join()
     else:
         test_kw["result"] = Result()
-        conn =  try_connect(host, port, max_pool_size=2)
+        log.info("client.connect.start num={i:d}".format(i=0))
+        conn =  try_connect(host, port, test_func=dummy_insert)
+        log.info("client.connect.end status=0 num={i:d}".format(i=0))
         test_kw["conn"] = conn
         stress_test(**test_kw)
         results = [test_kw["result"]]
+    log.info("main.end status=0")
 
-    try:
-        conn =  pymongo.Connection(host, port)
-    except Exception, err:
-        print("after_run.connect error: {e}".format(e=err))
-        return -1
+    log.info("post.start")
+    conn = try_connect(host, port)
     for i, r in enumerate(results):
         report(conn, run_id, r.dur, i, ndocs=docs_per_thread, nclients=nclients)
-    log.info("run.end")
+    log.info("post.end status=0")
+
+    log.info("run.end status=0")
+
     return 0
 
 if __name__ == '__main__':
