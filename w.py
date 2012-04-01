@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-""" Mongo Stress Test
+"""Mongo Stress Test
 """
 import datetime
 import logging
@@ -11,10 +11,6 @@ import sys
 import time
 
 import pymongo
-from pymongo import errors
-
-_name = 'stress_test'
-_file_name = '_'.join([_name, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f") + '.log'])
 
 my_hostname = socket.getfqdn()
 my_pid = os.getpid()
@@ -75,6 +71,7 @@ def main():
     """
     global wait_for_it, g_conn
 
+    # command-line
     parser = OptionParser()
     parser.add_option('-c', '--clear', dest='do_clear', help='Clear collection first', 
                       action="store_true", default=False)
@@ -93,21 +90,24 @@ def main():
                       help="Start at future time SEC seconds since 1/1/1970 (default=now)",
                       metavar="SEC")
     (options, args) = parser.parse_args()
-    
     if options.host is None:
         parser.error("-s/--server is required")
         return 1
 
+    # set run identifier string
     if options.runid is None:
-        run_id = "{0:d}".format(int(time.time()))
+        if options.when > 0:
+            tm = options.when
+        else:
+            tm = int(time.time())
+        run_id = "{0:d}".format(tm)
     else:
         run_id = options.runid
 
     # init logging
     hdlr = logging.StreamHandler()
     formatter = logging.Formatter("{r} %(asctime)s {h} {p:d} "
-                                  "%(levelname)s %(message)s".format(
-                                  r=run_id, h=my_hostname, p=my_pid))
+        "%(levelname)s %(message)s".format(r=run_id, h=my_hostname, p=my_pid))
     hdlr.setFormatter(formatter)
     log.addHandler(hdlr)
     if options.quiet:
@@ -117,17 +117,19 @@ def main():
     else:
         log.setLevel(logging.INFO)
 
+    # get vars from options
     db_name, coll_name = STRESS_DB, STRESS_COLL
     ndocs, host, port, wait_for_it = (options.ndocs, options.host, options.port, options.when)
 
+    # start
     log.info("run.start docs={m} server={h}:{p:d} "
              "db={db} collection={coll}".format(
              r=run_id, m=ndocs, h=host, p=port, db=db_name, coll=coll_name))
 
     log.debug("pre.start")
-
+    # connect
     g_conn = pymongo.Connection(host, port)
-
+    # check mode, just print results and stop
     if options.do_check:
         coll = g_conn[db_name][REPORT_COLL]
         print_results(coll)
@@ -135,10 +137,9 @@ def main():
             g_conn[db_name][REPORT_COLL].remove()
         log.debug("pre.end status=0")
         return 0
-
+    # with clear flag, empty db first
     if options.do_clear:
         g_conn[db_name][coll_name].remove()
-
     log.debug("pre.end status=0")
 
     log.debug("main.start")
@@ -150,8 +151,8 @@ def main():
     report(run_id, dur, ndocs=ndocs)
     log.debug("post.end status=0")
 
+    # done
     log.info("run.end status=0")
-
     return 0
 
 if __name__ == '__main__':
