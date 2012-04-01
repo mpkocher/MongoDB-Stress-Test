@@ -17,19 +17,7 @@ cd $PBS_O_WORKDIR
 # or, for debugging, 10 seconds into the future
 future=`python -c "import time; print(int(time.time()) + 10)"`
 
-mode=processes
 docs=10
+clear_flag="-c"
 
-case $mode in
-    ## Run many processes, 1 thread per process
-    processes) 
-        aprun -a xt -n 48 ./w.py --host=128.55.57.13 --ndocs=$docs --when=$future
-    ;;
-    ## Run 1 process per node, many threads in each process
-    threads)
-        aprun -a xt -n 2 -N 1 ./w.py --host=128.55.57.13 --nthreads=24 \
-              --ndocs=$docs --when=$future
-    ;;
-    *) printf "Abort. Bad mode: $mode\n"
-    ;;
-esac
+aprun -a xt -n 48 ./w.py $clear_flag --server=128.55.57.13 --ndocs=$docs --when=$future
