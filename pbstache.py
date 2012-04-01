@@ -34,12 +34,13 @@ except ValueError:
     usage()
 
 total_docs = 1000000
-v = {clear:True, server:"128.55.57.13"}
+v = {'clear':True, 'server':"128.55.57.13"}
 
-for procs in xrange(p_from, p_to, p_step):
+for procs in xrange(p_from, p_to+1, p_step):
     v['docs'] = total_docs / procs
-    v['run'] = "{f}_{p:d}_{t:d}".format(base_infile, procs, total_docs)
+    v['procs'] = procs
+    v['run'] = "{p:d}_{t:d}".format(p=procs, t=total_docs)
     script = pystache.render(data, v)
-    ofile = "{run}.pbs".format(**v)
+    ofile = "{f}_{run}.pbs".format(f=base_infile, **v)
     file(ofile, "w").write(script)
-
+    print("wrote {f}".format(f=ofile))
