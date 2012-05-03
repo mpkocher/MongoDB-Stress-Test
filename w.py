@@ -16,6 +16,10 @@ try:
 except ImportError:
     mongate = None
 
+TRACE = logging.DEBUG / 2
+def trace(x, msg, *args, **kwargs):
+    x.log(TRACE, msg, *args, **kwargs)
+
 my_hostname = socket.getfqdn()
 my_pid = os.getpid()
 
@@ -30,10 +34,12 @@ REPORT_COLL = 'report'
 wait_for_it = 0
 net_timeout = 3600 # default to 1 hr
 
-def stress_test(connections, ndocs=None, db_name=None, coll_name=None):
+def stress_test(connections, ndocs=None, db_name=None,
+                coll_name=None, pause=0):
     """Run a stress test.
     Returns: duration, in seconds
     """
+    tracing = log.isEnabledFor(TRACE)
     collections = [x[db_name][coll_name] for x in connections]
     t0 = time.time()
     if wait_for_it > 0:
@@ -48,6 +54,10 @@ def stress_test(connections, ndocs=None, db_name=None, coll_name=None):
         doc = {'doc_num': i, 'message': message}
         for collection in collections:
             collection.insert(doc)
+        if pause > 0:
+            time.sleep(pause)
+        if tracing:
+            trace(log, "inserted {0:d}".format(i))
     dur = time.time() - t0
     log.debug("loop.end n={n} dur={d:f}".format(n=ndocs, d=dur))
     return dur
@@ -87,13 +97,16 @@ def main():
                       help="Number of clients to connect to server (default=%default)")
     parser.add_option('-p', '--port', dest='port', type='int', default=27018,
                       help='Connect to MongoDB server on PORT (default=%default)')
+    parser.add_option('-P', '--pause', dest='pause', type='int', default=0,
+                      help="Pause MS milliseconds between each write (default=%default)",
+                      metavar="MS")
     parser.add_option('-q', '--quiet', dest='quiet', action='store_true', help="No logging")
     parser.add_option('-r', '--results', dest='do_check', help="Print results and exit. "
                       "With -c/--clear also clears results.",
                       action="store_true")
     parser.add_option("-R", "--run", dest="runid", metavar="ID", help="Run identifier", default=None)
     parser.add_option('-s', '--server', dest='host', help='MongoDB server host (required)')
-    parser.add_option('-v', '--verbose', dest='vb', action='store_true', help="More logging")
+    parser.add_option('-v', '--verbose', dest='vb', action='count', help="More logging")
     parser.add_option('-w', '--when', dest='when', type='int', default=0,
                       help="Start at future time SEC seconds since 1/1/1970 (default=now)",
                       metavar="SEC")
@@ -120,7 +133,9 @@ def main():
     log.addHandler(hdlr)
     if options.quiet:
        log.setLevel(logging.ERROR)
-    elif options.vb:
+    elif options.vb > 1:
+        log.setLevel(TRACE)
+    elif options.vb == 1:
         log.setLevel(logging.DEBUG)
     else:
         if options.do_check:
@@ -132,6 +147,7 @@ def main():
     db_name, coll_name = STRESS_DB, STRESS_COLL
     ndocs, host, port, wait_for_it, ncli = (options.ndocs, options.host,
                                      options.port, options.when, options.nclients)
+    pause = options.pause / 1000.0
 
     # start
     log.info("run.start docs={m} clients={c} server={h}:{p:d} "
@@ -178,7 +194,7 @@ def main():
 
     log.debug("main.start")
     dur = stress_test(connections, ndocs=ndocs, db_name=db_name,
-                      coll_name=coll_name)
+                      coll_name=coll_name, pause=pause)
     log.debug("main.end status=0")
 
     log.debug("post.start")
