@@ -22,3 +22,6 @@ Example of running w.py
         future=`python -c "import time; print(int(time.time()) + 100)"`
         # Run 1 client at that time
         ./w.py --host=128.55.57.13 --ndocs=100 --when=$future
+
+* Util files
+  - sharded-mongo  :  Run simple localhost setup with 2 shards
