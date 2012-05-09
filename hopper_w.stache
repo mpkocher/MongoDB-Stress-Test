@@ -1,0 +1,26 @@
+#!/bin/bash
+#PBS -q debug
+#PBS -N mongostress_{{run}}
+#PBS -l mppwidth={{procs}}
+#PBS -l walltime=00:30:00
+
+module load python
+
+export CRAY_ROOTFS=DSL
+
+cd $PBS_O_WORKDIR
+
+## Pick a time 3 minutes into the future
+future=`python -c "import time; print(int(time.time()) + 180)"`
+# or, for debugging, 10 seconds into the future
+#future=`python -c "import time; print(int(time.time()) + 10)"`
+
+{{#clear}}
+clear_flag="-c"
+{{/clear}}
+{{^clear}}
+clear_flag=""
+{{/clear}}
+
+aprun -a xt -n {{procs}} ./w.py $clear_flag --server={{server}} --ndocs={{docs}} --when=$future \
+      -R hopper_{{run}}
