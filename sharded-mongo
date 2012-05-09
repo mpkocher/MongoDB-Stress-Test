@@ -1,0 +1,51 @@
+#!/bin/sh
+
+mode=$1
+shift
+
+function usage() {
+    e=$1
+    if [ "x$e" != "x" ]; then
+        printf "** $e\n\n"
+    fi
+    p=$(basename $0)
+    cat - <<EOT
+usage: $p MODE
+
+mode   action
+----   -------
+s      run servers
+c      configure
+EOT
+}
+
+case "$mode" in
+    s*)
+        printf "== Start servers ==\n"
+        mongod --shardsvr --dbpath /data/db/a --port 10000 > /tmp/sharda.log &
+        mongod --shardsvr --dbpath /data/db/b --port 10001 > /tmp/shardb.log &
+        mongod --configsvr --dbpath /data/db/config --port 20000 > /tmp/configdb.log &
+        mongos --chunkSize 1 --port 27017 --configdb localhost:20000 > /tmp/mongos1.log &
+        mongos --chunkSize 1 --port 27018 --configdb localhost:20000 > /tmp/mongos2.log &
+        ;;
+
+    c*)
+        printf "== Configure sharding ==\n"
+        shardf=/tmp/configshard.js
+        cat - >$shardf <<EOF
+        db.runCommand( { addshard : "localhost:10000" } )
+        db.runCommand( { addshard : "localhost:10001" } )
+        db.runCommand( { enablesharding : "test" } )
+        db.runCommand( { shardcollection : "test.people", key : {name : 1} } )
+EOF
+        mongo admin $shardf
+        /bin/rm -f $shardf
+        ;;
+
+    *)
+        usage "Unrecognized mode"
+        exit 1
+        ;;
+esac
+
+printf "== Done ==\n"
