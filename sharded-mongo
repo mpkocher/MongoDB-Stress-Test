@@ -16,6 +16,7 @@ mode   action
 ----   -------
 s      run servers
 c      configure
+k      kill mongod/mongos processes
 EOT
 }
 
@@ -25,22 +26,36 @@ case "$mode" in
         mongod --shardsvr --dbpath /data/db/a --port 10000 > /tmp/sharda.log &
         mongod --shardsvr --dbpath /data/db/b --port 10001 > /tmp/shardb.log &
         mongod --configsvr --dbpath /data/db/config --port 20000 > /tmp/configdb.log &
-        mongos --chunkSize 1 --port 27017 --configdb localhost:20000 > /tmp/mongos1.log &
-        mongos --chunkSize 1 --port 27018 --configdb localhost:20000 > /tmp/mongos2.log &
+        sleep 2
+        mongos --chunkSize 1 --port 27017 --configdb 127.0.0.1:20000 > /tmp/mongos1.log &
+        mongos --chunkSize 1 --port 27018 --configdb 127.0.0.1:20000 > /tmp/mongos2.log &
         ;;
 
     c*)
         printf "== Configure sharding ==\n"
         shardf=/tmp/configshard.js
         cat - >$shardf <<EOF
-        db.runCommand( { addshard : "localhost:10000" } )
-        db.runCommand( { addshard : "localhost:10001" } )
+        db.runCommand( { addshard : "127.0.0.1:10000" } )
+        db.runCommand( { addshard : "127.0.0.1:10001" } )
         db.runCommand( { enablesharding : "test" } )
         db.runCommand( { shardcollection : "test.people", key : {name : 1} } )
 EOF
         mongo admin $shardf
         /bin/rm -f $shardf
         ;;
+
+     k*)
+         printf "== Kill processes ==\n"
+         xpr="^[0-9]+ mongo[sd]"
+         n=$(ps -eo pid,command|grep -c -E "$xpr")
+         if [ $n -gt 0 ]; then
+             printf "killing $n processes\n"
+             ps -eo pid,command|grep -E "$xpr"| cut -f1 -d' '| xargs kill
+             printf "done\n"
+         else
+             printf "no mongo processes found\n"
+         fi
+         ;;
 
     *)
         usage "Unrecognized mode"
